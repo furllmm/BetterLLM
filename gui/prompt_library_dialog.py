@@ -5,13 +5,14 @@ Browse, search, manage, and insert prompts from the library.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton,
     QListWidget, QListWidgetItem, QTextEdit, QComboBox, QSplitter,
-    QWidget, QFrame, QMessageBox, QInputDialog, QDialogButtonBox,
+    QWidget, QFrame, QMessageBox, QInputDialog, QDialogButtonBox, QFileDialog,
 )
 from PySide6.QtGui import QFont
 
@@ -42,6 +43,27 @@ class AddPromptDialog(QDialog):
         self.desc_edit = QLineEdit()
         layout.addWidget(self.desc_edit)
 
+        meta_row = QHBoxLayout()
+        self.app_edit = QLineEdit(); self.app_edit.setPlaceholderText("App name")
+        self.project_edit = QLineEdit(); self.project_edit.setPlaceholderText("Project")
+        meta_row.addWidget(self.app_edit)
+        meta_row.addWidget(self.project_edit)
+        layout.addLayout(meta_row)
+
+        meta_row2 = QHBoxLayout()
+        self.lang_edit = QLineEdit(); self.lang_edit.setPlaceholderText("Programming language")
+        self.framework_edit = QLineEdit(); self.framework_edit.setPlaceholderText("Framework (optional)")
+        meta_row2.addWidget(self.lang_edit)
+        meta_row2.addWidget(self.framework_edit)
+        layout.addLayout(meta_row2)
+
+        meta_row3 = QHBoxLayout()
+        self.version_edit = QLineEdit(); self.version_edit.setPlaceholderText("Prompt version (e.g. v1)")
+        self.tags_edit = QLineEdit(); self.tags_edit.setPlaceholderText("Tags (comma-separated)")
+        meta_row3.addWidget(self.version_edit)
+        meta_row3.addWidget(self.tags_edit)
+        layout.addLayout(meta_row3)
+
         layout.addWidget(QLabel("Prompt Text:"))
         self.text_edit = QTextEdit()
         self.text_edit.setPlainText(initial_text)
@@ -63,11 +85,18 @@ class AddPromptDialog(QDialog):
         self.accept()
 
     def get_data(self):
+        tags = [t.strip() for t in self.tags_edit.text().split(",") if t.strip()]
         return {
             "name": self.name_edit.text().strip(),
             "category": self.cat_combo.currentText().strip() or "General",
             "description": self.desc_edit.text().strip(),
             "text": self.text_edit.toPlainText().strip(),
+            "app_name": self.app_edit.text().strip(),
+            "project_name": self.project_edit.text().strip(),
+            "programming_language": self.lang_edit.text().strip(),
+            "framework": self.framework_edit.text().strip(),
+            "prompt_version": self.version_edit.text().strip() or "v1",
+            "tags": tags,
         }
 
 
@@ -138,6 +167,17 @@ class PromptLibraryDialog(QDialog):
         if not self._current_input:
             btn_save.setEnabled(False)
         hlay.addWidget(btn_save)
+
+        btn_export = QPushButton("⬇ Export")
+        btn_export.setObjectName("secondary")
+        btn_export.clicked.connect(self._export_prompts)
+        hlay.addWidget(btn_export)
+
+        btn_import = QPushButton("⬆ Import")
+        btn_import.setObjectName("secondary")
+        btn_import.clicked.connect(self._import_prompts)
+        hlay.addWidget(btn_import)
+
         main.addWidget(header)
 
         # Body
@@ -156,6 +196,24 @@ class PromptLibraryDialog(QDialog):
         self.cat_filter.addItem("All Categories")
         self.cat_filter.currentTextChanged.connect(self._on_search)
         search_row.addWidget(self.cat_filter)
+
+        self.app_filter = QComboBox()
+        self.app_filter.setMinimumWidth(140)
+        self.app_filter.addItem("All Apps")
+        self.app_filter.currentTextChanged.connect(self._on_search)
+        search_row.addWidget(self.app_filter)
+
+        self.lang_filter = QComboBox()
+        self.lang_filter.setMinimumWidth(140)
+        self.lang_filter.addItem("All Languages")
+        self.lang_filter.currentTextChanged.connect(self._on_search)
+        search_row.addWidget(self.lang_filter)
+
+        self.framework_filter = QComboBox()
+        self.framework_filter.setMinimumWidth(140)
+        self.framework_filter.addItem("All Frameworks")
+        self.framework_filter.currentTextChanged.connect(self._on_search)
+        search_row.addWidget(self.framework_filter)
         body_layout.addLayout(search_row)
 
         # Splitter: list | detail
@@ -222,6 +280,19 @@ class PromptLibraryDialog(QDialog):
         self.cat_filter.clear()
         self.cat_filter.addItem("All Categories")
         self.cat_filter.addItems(cats)
+
+        self.app_filter.clear()
+        self.app_filter.addItem("All Apps")
+        self.app_filter.addItems(lib.get_unique_values("app_name"))
+
+        self.lang_filter.clear()
+        self.lang_filter.addItem("All Languages")
+        self.lang_filter.addItems(lib.get_unique_values("programming_language"))
+
+        self.framework_filter.clear()
+        self.framework_filter.addItem("All Frameworks")
+        self.framework_filter.addItems(lib.get_unique_values("framework"))
+
         self._display_prompts(self._all_prompts)
 
     def _display_prompts(self, prompts):
@@ -229,19 +300,28 @@ class PromptLibraryDialog(QDialog):
         for p in prompts:
             item = QListWidgetItem(f"{p.get('name', 'Untitled')}")
             item.setData(Qt.UserRole, p["id"])
-            tooltip = f"Category: {p.get('category', '')}\n{p.get('description', '')}"
+            tooltip = (f"Category: {p.get('category', '')} | App: {p.get('app_name', '')} | Lang: {p.get('programming_language', '')}\n"                       f"{p.get('description', '')}")
             item.setToolTip(tooltip)
             self.prompt_list.addItem(item)
 
     def _on_search(self):
         query = self.search_box.text().strip()
         cat = self.cat_filter.currentText()
+        app = self.app_filter.currentText()
+        lang = self.lang_filter.currentText()
+        fw = self.framework_filter.currentText()
         if query:
             prompts = lib.search_prompts(query)
         else:
             prompts = self._all_prompts
         if cat and cat != "All Categories":
             prompts = [p for p in prompts if p.get("category") == cat]
+        if app and app != "All Apps":
+            prompts = [p for p in prompts if p.get("app_name", "") == app]
+        if lang and lang != "All Languages":
+            prompts = [p for p in prompts if p.get("programming_language", "") == lang]
+        if fw and fw != "All Frameworks":
+            prompts = [p for p in prompts if p.get("framework", "") == fw]
         self._display_prompts(prompts)
 
     def _on_select(self, current: QListWidgetItem, _):
@@ -257,7 +337,8 @@ class PromptLibraryDialog(QDialog):
         if prompt:
             self.detail_name.setText(prompt.get("name", ""))
             self.detail_cat.setText(f"📁 {prompt.get('category', 'General')}")
-            self.detail_desc.setText(prompt.get("description", ""))
+            meta = f"App: {prompt.get('app_name','')} · Project: {prompt.get('project_name','')} · Lang: {prompt.get('programming_language','')} · FW: {prompt.get('framework','')} · Ver: {prompt.get('prompt_version','v1')}"
+            self.detail_desc.setText((prompt.get("description", "") + "\n" + meta).strip())
             self.detail_text.setPlainText(prompt.get("text", ""))
             self.btn_use.setEnabled(True)
             self.btn_edit.setEnabled(True)
@@ -276,14 +357,14 @@ class PromptLibraryDialog(QDialog):
         dlg = AddPromptDialog(self)
         if dlg.exec():
             data = dlg.get_data()
-            lib.add_prompt(data["name"], data["text"], data["category"], data["description"])
+            lib.add_prompt(**data)
             self._load_prompts()
 
     def _save_current_input(self):
         dlg = AddPromptDialog(self, self._current_input)
         if dlg.exec():
             data = dlg.get_data()
-            lib.add_prompt(data["name"], data["text"], data["category"], data["description"])
+            lib.add_prompt(**data)
             self._load_prompts()
 
     def _edit_prompt(self):
@@ -295,6 +376,12 @@ class PromptLibraryDialog(QDialog):
         dlg = AddPromptDialog(self, prompt.get("text", ""))
         dlg.name_edit.setText(prompt.get("name", ""))
         dlg.desc_edit.setText(prompt.get("description", ""))
+        dlg.app_edit.setText(prompt.get("app_name", ""))
+        dlg.project_edit.setText(prompt.get("project_name", ""))
+        dlg.lang_edit.setText(prompt.get("programming_language", ""))
+        dlg.framework_edit.setText(prompt.get("framework", ""))
+        dlg.version_edit.setText(prompt.get("prompt_version", "v1"))
+        dlg.tags_edit.setText(", ".join(prompt.get("tags", [])))
         idx = dlg.cat_combo.findText(prompt.get("category", ""))
         if idx >= 0:
             dlg.cat_combo.setCurrentIndex(idx)
@@ -302,6 +389,41 @@ class PromptLibraryDialog(QDialog):
             data = dlg.get_data()
             lib.update_prompt(self._selected_id, **data)
             self._load_prompts()
+
+    def _export_prompts(self):
+        fmt_item, ok = QInputDialog.getItem(
+            self, "Export Prompt Library", "Format:", ["JSON", "Markdown"], 0, False
+        )
+        if not ok:
+            return
+
+        ext = "json" if fmt_item == "JSON" else "md"
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Prompt Library",
+            f"prompt_library.{ext}",
+            "JSON (*.json);;Markdown (*.md)",
+        )
+        if not out_path:
+            return
+
+        fmt = "json" if fmt_item == "JSON" else "markdown"
+        try:
+            lib.export_prompts(Path(out_path), fmt)
+            QMessageBox.information(self, "Export", f"Exported prompt library to:\n{out_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Failed", str(e))
+
+    def _import_prompts(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import Prompts", "", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            n = lib.import_prompts(Path(path))
+            self._load_prompts()
+            QMessageBox.information(self, "Import", f"Imported {n} prompts.")
+        except Exception as e:
+            QMessageBox.critical(self, "Import Failed", str(e))
 
     def _delete_prompt(self):
         if not self._selected_id:
