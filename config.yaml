@@ -1,0 +1,63 @@
+logging:
+  file: app.log
+  level: INFO
+memory:
+  enabled: false
+  max_tokens_per_topic: 2048
+  prune_interval_seconds: 300
+models:
+  default_topic: general
+  topics:
+    instruct:
+      ctx_size: 4096
+      gpu_layers: 0
+      path: models/Llama-3-8B-Instruct-Q4_K_M.gguf
+      rules:
+      - help
+      - explain
+      - how to
+      - what is
+      threads: 4
+    coder:
+      ctx_size: 8192
+      gpu_layers: 0
+      path: models/DeepSeek-Coder-7B-Q4_K_M.gguf
+      rules:
+      - python
+      - javascript
+      - code
+      - programming
+      - debug
+      threads: 4
+    roleplay:
+      ctx_size: 4096
+      gpu_layers: 0
+      path: models/Mistral-7B-v0.1-RP-Q4_K_M.gguf
+      rules:
+      - roleplay
+      - story
+      - character
+      - act as
+      threads: 4
+    general:
+      ctx_size: 4096
+      gpu_layers: 0
+      path: models/general.gguf
+      rules:
+      - hello
+      - hi
+      threads: 4
+    vision:
+      ctx_size: 4096
+      gpu_layers: 0
+      path: models/vision.gguf
+      rules:
+      - describe
+      - image
+      - picture
+      threads: 4
+profile: BALANCED
+resources:
+  idle_unload_minutes: 5
+  poll_interval_seconds: 10
+  ram_threshold_percent: 85

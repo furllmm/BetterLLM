@@ -1,0 +1,74 @@
+[
+  {
+    "id": "p_1773222704399",
+    "name": "Code Review",
+    "text": "Please review the following code for bugs, performance issues, and style improvements:\n\n```\n{code}\n```",
+    "category": "Coding",
+    "description": "Review code for issues",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  },
+  {
+    "id": "p_1773222704399",
+    "name": "Explain Like I'm 5",
+    "text": "Explain {topic} in simple terms that a 5-year-old could understand.",
+    "category": "Education",
+    "description": "Simple explanation",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  },
+  {
+    "id": "p_1773222704400",
+    "name": "Translate to Python",
+    "text": "Convert the following code to Python:\n\n```\n{code}\n```",
+    "category": "Coding",
+    "description": "Convert code to Python",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  },
+  {
+    "id": "p_1773222704400",
+    "name": "Write Unit Tests",
+    "text": "Write comprehensive unit tests for the following code:\n\n```\n{code}\n```",
+    "category": "Coding",
+    "description": "Generate unit tests",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  },
+  {
+    "id": "p_1773222704400",
+    "name": "Summarize Text",
+    "text": "Summarize the following text in 3-5 bullet points:\n\n{text}",
+    "category": "Writing",
+    "description": "Summarize long text",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  },
+  {
+    "id": "p_1773222704400",
+    "name": "Fix Grammar",
+    "text": "Fix the grammar, punctuation, and style of the following text while preserving the original meaning:\n\n{text}",
+    "category": "Writing",
+    "description": "Fix grammar and style",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  },
+  {
+    "id": "p_1773222704401",
+    "name": "Debug Error",
+    "text": "I'm getting this error:\n\n{error}\n\nHere is my code:\n\n```\n{code}\n```\n\nWhat's wrong and how do I fix it?",
+    "category": "Coding",
+    "description": "Help debug an error",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  },
+  {
+    "id": "p_1773222704401",
+    "name": "Brainstorm Ideas",
+    "text": "Give me 10 creative ideas for {topic}. Be specific and original.",
+    "category": "Creative",
+    "description": "Generate creative ideas",
+    "created_at": "2026-03-11T12:51:44",
+    "use_count": 0
+  }
+]
