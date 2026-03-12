@@ -132,3 +132,19 @@ def test_personalize_suggestions_keeps_input_order_when_no_profile_terms(monkeyp
     suggestions = ["First option", "Second option", "Third option"]
     ranked = fav.personalize_suggestions(suggestions, limit=3)
     assert ranked == suggestions
+
+
+def test_build_response_style_guidance_from_preferences(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(fav, "FAVORITES_FILE", tmp_path / "favorites.json")
+    fav.save_profile({"preferences": ["concise", "bullet points"]})
+
+    guidance = fav.build_response_style_guidance()
+    assert guidance == "Response style guidance: concise; bullet points"
+
+
+def test_build_personalization_context_includes_style_guidance(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(fav, "FAVORITES_FILE", tmp_path / "favorites.json")
+    fav.save_profile({"preferences": ["concise"]})
+
+    text = fav.build_personalization_context()
+    assert "Response style guidance: concise" in text

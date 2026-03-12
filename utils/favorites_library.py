@@ -82,6 +82,15 @@ def update_profile(**kwargs) -> Dict:
     return save_profile(profile)
 
 
+def build_response_style_guidance(profile: Optional[Dict] = None) -> str:
+    """Build explicit response-style guidance derived from user preferences."""
+    p = _normalize_profile(profile or load_profile())
+    prefs = p.get("preferences", [])
+    if not prefs:
+        return ""
+    return "Response style guidance: " + "; ".join(prefs)
+
+
 def build_personalization_context(profile: Optional[Dict] = None) -> str:
     p = _normalize_profile(profile or load_profile())
     lines: List[str] = []
@@ -98,6 +107,10 @@ def build_personalization_context(profile: Optional[Dict] = None) -> str:
     _add("Interests / hobbies", p["interests_hobbies"])
     if p["notes"]:
         lines.append(f"- Notes: {p['notes']}")
+
+    style_guidance = build_response_style_guidance(p)
+    if style_guidance:
+        lines.append(f"- {style_guidance}")
 
     if not lines:
         return ""
