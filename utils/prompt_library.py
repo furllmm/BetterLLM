@@ -210,24 +210,47 @@ def export_prompts(path: Path, fmt: str = "json") -> Path:
     return path
 
 
-def import_prompts(path: Path) -> int:
+def import_prompts(path: Path, merge_duplicates: bool = True) -> int:
     """Import prompts from JSON array file. Returns number of imported items."""
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, list):
         raise ValueError("Prompt import expects a JSON array")
 
-    existing = _load()
+    existing = [_normalize_prompt(p) for p in _load()]
     existing_ids = {p.get("id") for p in existing}
+    existing_sig = {
+        (
+            (p.get("name") or "").strip().lower(),
+            (p.get("text") or "").strip(),
+            (p.get("app_name") or "").strip().lower(),
+            (p.get("project_name") or "").strip().lower(),
+            (p.get("prompt_version") or "").strip().lower(),
+        )
+        for p in existing
+    }
     imported = 0
 
     for raw in data:
         if not isinstance(raw, dict):
             continue
         p = _normalize_prompt(raw)
+
+        sig = (
+            (p.get("name") or "").strip().lower(),
+            (p.get("text") or "").strip(),
+            (p.get("app_name") or "").strip().lower(),
+            (p.get("project_name") or "").strip().lower(),
+            (p.get("prompt_version") or "").strip().lower(),
+        )
+        if merge_duplicates and sig in existing_sig:
+            continue
+
         if not p.get("id") or p.get("id") in existing_ids:
             p["id"] = f"p_{int(time.time() * 1000)}_{imported}"
+
         existing.append(p)
         existing_ids.add(p["id"])
+        existing_sig.add(sig)
         imported += 1
 
     _save(existing)

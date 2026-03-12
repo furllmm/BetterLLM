@@ -96,3 +96,29 @@ def test_get_app_prompt_timeline_orders_by_created_at(monkeypatch, tmp_path: Pat
     assert len(timeline) == 2
     assert timeline[0]["name"] == "Old"
     assert timeline[1]["name"] == "New"
+
+
+
+def test_prompt_import_skips_duplicates_by_default(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(pl, "LIBRARY_FILE", tmp_path / "library.json")
+
+    pl.add_prompt("Same", "Text", app_name="App", project_name="Proj", prompt_version="v1")
+    export_path = tmp_path / "export.json"
+    pl.export_prompts(export_path, "json")
+
+    # Importing same file should not duplicate when merge_duplicates=True
+    n = pl.import_prompts(export_path)
+    assert n == 0
+    assert len(pl.get_all_prompts()) == 1
+
+
+def test_prompt_import_can_allow_duplicates(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(pl, "LIBRARY_FILE", tmp_path / "library.json")
+
+    pl.add_prompt("Same", "Text", app_name="App", project_name="Proj", prompt_version="v1")
+    export_path = tmp_path / "export.json"
+    pl.export_prompts(export_path, "json")
+
+    n = pl.import_prompts(export_path, merge_duplicates=False)
+    assert n == 1
+    assert len(pl.get_all_prompts()) == 2
