@@ -59,10 +59,15 @@ class AddPromptDialog(QDialog):
 
         meta_row3 = QHBoxLayout()
         self.version_edit = QLineEdit(); self.version_edit.setPlaceholderText("Prompt version (e.g. v1)")
-        self.tags_edit = QLineEdit(); self.tags_edit.setPlaceholderText("Tags (comma-separated)")
+        self.feature_edit = QLineEdit(); self.feature_edit.setPlaceholderText("Feature name (optional)")
         meta_row3.addWidget(self.version_edit)
-        meta_row3.addWidget(self.tags_edit)
+        meta_row3.addWidget(self.feature_edit)
         layout.addLayout(meta_row3)
+
+        meta_row4 = QHBoxLayout()
+        self.tags_edit = QLineEdit(); self.tags_edit.setPlaceholderText("Tags (comma-separated)")
+        meta_row4.addWidget(self.tags_edit)
+        layout.addLayout(meta_row4)
 
         layout.addWidget(QLabel("Prompt Text:"))
         self.text_edit = QTextEdit()
@@ -96,6 +101,7 @@ class AddPromptDialog(QDialog):
             "programming_language": self.lang_edit.text().strip(),
             "framework": self.framework_edit.text().strip(),
             "prompt_version": self.version_edit.text().strip() or "v1",
+            "feature_name": self.feature_edit.text().strip(),
             "tags": tags,
         }
 
@@ -182,6 +188,11 @@ class PromptLibraryDialog(QDialog):
         btn_timeline.setObjectName("secondary")
         btn_timeline.clicked.connect(self._show_app_timeline)
         hlay.addWidget(btn_timeline)
+
+        btn_feature_map = QPushButton("🧩 Feature Map")
+        btn_feature_map.setObjectName("secondary")
+        btn_feature_map.clicked.connect(self._show_feature_map)
+        hlay.addWidget(btn_feature_map)
 
         main.addWidget(header)
 
@@ -342,7 +353,7 @@ class PromptLibraryDialog(QDialog):
         if prompt:
             self.detail_name.setText(prompt.get("name", ""))
             self.detail_cat.setText(f"📁 {prompt.get('category', 'General')}")
-            meta = f"App: {prompt.get('app_name','')} · Project: {prompt.get('project_name','')} · Lang: {prompt.get('programming_language','')} · FW: {prompt.get('framework','')} · Ver: {prompt.get('prompt_version','v1')}"
+            meta = f"App: {prompt.get('app_name','')} · Project: {prompt.get('project_name','')} · Lang: {prompt.get('programming_language','')} · FW: {prompt.get('framework','')} · Ver: {prompt.get('prompt_version','v1')} · Feature: {prompt.get('feature_name','')}"
             self.detail_desc.setText((prompt.get("description", "") + "\n" + meta).strip())
             self.detail_text.setPlainText(prompt.get("text", ""))
             self.btn_use.setEnabled(True)
@@ -386,6 +397,7 @@ class PromptLibraryDialog(QDialog):
         dlg.lang_edit.setText(prompt.get("programming_language", ""))
         dlg.framework_edit.setText(prompt.get("framework", ""))
         dlg.version_edit.setText(prompt.get("prompt_version", "v1"))
+        dlg.feature_edit.setText(prompt.get("feature_name", ""))
         dlg.tags_edit.setText(", ".join(prompt.get("tags", [])))
         idx = dlg.cat_combo.findText(prompt.get("category", ""))
         if idx >= 0:
@@ -464,6 +476,40 @@ class PromptLibraryDialog(QDialog):
             lines.append(f"- Tags: {tags}")
             if p.get('description'):
                 lines.append(f"- Description: {p.get('description')}")
+            lines.append("")
+
+        view.setPlainText("\n".join(lines))
+        lay.addWidget(view)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        lay.addWidget(close_btn, alignment=Qt.AlignRight)
+        dlg.exec()
+
+    def _show_feature_map(self):
+        app = self.app_filter.currentText().strip()
+        if app == "All Apps":
+            app = ""
+        mapping = lib.get_prompt_feature_map(app)
+        if not mapping:
+            QMessageBox.information(self, "Feature Map", "No prompt mappings found.")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Prompt to Feature Map")
+        dlg.resize(860, 560)
+        lay = QVBoxLayout(dlg)
+        view = QTextEdit()
+        view.setReadOnly(True)
+
+        lines = ["# Prompt to Feature Map", ""]
+        if app:
+            lines.append(f"App: {app}")
+            lines.append("")
+
+        for feature, prompts in sorted(mapping.items(), key=lambda x: x[0].lower()):
+            lines.append(f"## {feature} ({len(prompts)})")
+            for p in prompts:
+                lines.append(f"- {p.get('created_at','')} · {p.get('name','Untitled')} [v{p.get('prompt_version','v1')}]")
             lines.append("")
 
         view.setPlainText("\n".join(lines))

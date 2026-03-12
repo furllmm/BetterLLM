@@ -11,6 +11,7 @@ Bu dosya tamamlanan ve bekleyen işleri hızlıca görmek için tutulur.
 - Folder-level export (sidebar context menu)
 - Prompt library (kayıt, kategori, arama, hızlı ekleme)
 - Prompt library metadata + import/export + dil/framework/app filtreleri
+- App prompt timeline + prompt-to-feature map görünümü
 - Custom generation presets (save/load/delete)
 - Global chat search + jump + in-chat highlight
 - Regenerate response + previous/new side-by-side compare
@@ -28,10 +29,10 @@ Bu dosya tamamlanan ve bekleyen işleri hızlıca görmek için tutulur.
 
 ## ⏳ Sıradaki Önerilen İşler
 1. Search index incremental hızlandırma (debounced background refresh + cancelable jobs)
-2. Prompt timeline + prompt-to-feature mapping görünümü
-3. Usage dashboard (chat/model bazlı token/latency istatistikleri)
-4. Robust import/export UX (bulk operations progress + error summary)
-5. Prompt replay/rebuild workflow (sequence run + results compare)
+2. Usage dashboard (chat/model bazlı token/latency istatistikleri)
+3. Robust import/export UX (bulk operations progress + error summary)
+4. Prompt replay/rebuild workflow (sequence run + results compare)
+5. Feature-level regenerate/replay from prompt map
 
 ## Not
 - Büyük backlog tek adımda değil; iteratif ve test destekli ilerleniyor.

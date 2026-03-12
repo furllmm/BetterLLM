@@ -16,6 +16,7 @@ def test_add_prompt_with_extended_metadata_and_search(monkeypatch, tmp_path: Pat
         programming_language="Python",
         framework="Flask",
         prompt_version="v2",
+        feature_name="Auth API",
         tags=["backend", "api"],
     )
 
@@ -25,6 +26,7 @@ def test_add_prompt_with_extended_metadata_and_search(monkeypatch, tmp_path: Pat
     assert p["app_name"] == "BetterLLM"
     assert p["framework"] == "Flask"
     assert p["prompt_version"] == "v2"
+    assert p["feature_name"] == "Auth API"
 
     assert pl.search_prompts("flask")
     assert pl.search_prompts("backend")
@@ -122,3 +124,17 @@ def test_prompt_import_can_allow_duplicates(monkeypatch, tmp_path: Path):
     n = pl.import_prompts(export_path, merge_duplicates=False)
     assert n == 1
     assert len(pl.get_all_prompts()) == 2
+
+
+
+def test_get_prompt_feature_map_groups_entries(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(pl, "LIBRARY_FILE", tmp_path / "library.json")
+
+    pl.add_prompt("A", "x", app_name="App1", feature_name="Login")
+    pl.add_prompt("B", "x", app_name="App1", feature_name="Login")
+    pl.add_prompt("C", "x", app_name="App1", feature_name="Dashboard")
+
+    mp = pl.get_prompt_feature_map("App1")
+    assert "Login" in mp and "Dashboard" in mp
+    assert len(mp["Login"]) == 2
+    assert len(mp["Dashboard"]) == 1

@@ -46,6 +46,7 @@ def _normalize_prompt(entry: Dict) -> Dict:
     e.setdefault("programming_language", "")
     e.setdefault("framework", "")
     e.setdefault("prompt_version", "v1")
+    e.setdefault("feature_name", "")
     e.setdefault("tags", [])
     if not isinstance(e.get("tags"), list):
         e["tags"] = []
@@ -71,7 +72,8 @@ def get_categories() -> List[str]:
 
 def add_prompt(name: str, text: str, category: str = "General", description: str = "",
                app_name: str = "", project_name: str = "", programming_language: str = "",
-               framework: str = "", prompt_version: str = "v1", tags: Optional[List[str]] = None) -> Dict:
+               framework: str = "", prompt_version: str = "v1", feature_name: str = "",
+               tags: Optional[List[str]] = None) -> Dict:
     """Add a new prompt. Returns the created prompt dict."""
     prompts = _load()
     entry = {
@@ -85,6 +87,7 @@ def add_prompt(name: str, text: str, category: str = "General", description: str
         "programming_language": programming_language,
         "framework": framework,
         "prompt_version": prompt_version or "v1",
+        "feature_name": feature_name,
         "tags": tags or [],
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "use_count": 0,
@@ -126,6 +129,7 @@ def search_prompts(query: str) -> List[Dict]:
         or q in p.get("project_name", "").lower()
         or q in p.get("programming_language", "").lower()
         or q in p.get("framework", "").lower()
+        or q in p.get("feature_name", "").lower()
         or any(q in str(t).lower() for t in p.get("tags", []))
     ]
 
@@ -198,6 +202,7 @@ def export_prompts(path: Path, fmt: str = "json") -> Path:
             lines.append(f"- Language: {p.get('programming_language','')}\n")
             lines.append(f"- Framework: {p.get('framework','')}\n")
             lines.append(f"- Version: {p.get('prompt_version','v1')}\n")
+            lines.append(f"- Feature: {p.get('feature_name','')}\n")
             lines.append(f"- Tags: {tags}\n\n")
             lines.append(f"{p.get('description','')}\n\n")
             lines.append("```\n")
@@ -225,6 +230,7 @@ def import_prompts(path: Path, merge_duplicates: bool = True) -> int:
             (p.get("app_name") or "").strip().lower(),
             (p.get("project_name") or "").strip().lower(),
             (p.get("prompt_version") or "").strip().lower(),
+            (p.get("feature_name") or "").strip().lower(),
         )
         for p in existing
     }
@@ -241,6 +247,7 @@ def import_prompts(path: Path, merge_duplicates: bool = True) -> int:
             (p.get("app_name") or "").strip().lower(),
             (p.get("project_name") or "").strip().lower(),
             (p.get("prompt_version") or "").strip().lower(),
+            (p.get("feature_name") or "").strip().lower(),
         )
         if merge_duplicates and sig in existing_sig:
             continue
@@ -267,3 +274,17 @@ def get_app_prompt_timeline(app_name: str) -> List[Dict]:
         if (p.get("app_name") or "") == app_name
     ]
     return sorted(prompts, key=lambda p: (p.get("created_at", ""), p.get("prompt_version", "")))
+
+
+def get_prompt_feature_map(app_name: str = "") -> Dict[str, List[Dict]]:
+    """Return mapping: feature_name -> prompt entries (optionally filtered by app)."""
+    prompts = [_normalize_prompt(p) for p in _load()]
+    if app_name:
+        prompts = [p for p in prompts if (p.get("app_name") or "") == app_name]
+    mapping: Dict[str, List[Dict]] = {}
+    for p in prompts:
+        feature = (p.get("feature_name") or "").strip() or "(unmapped)"
+        mapping.setdefault(feature, []).append(p)
+    for feature in list(mapping.keys()):
+        mapping[feature] = sorted(mapping[feature], key=lambda x: x.get("created_at", ""))
+    return mapping
