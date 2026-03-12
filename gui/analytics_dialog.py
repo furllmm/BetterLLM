@@ -9,12 +9,12 @@ from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
     QWidget, QGridLayout, QFrame, QTabWidget,
 )
 from PySide6.QtGui import QFont
 
-from utils.chat_analytics import compute_chat_stats, compute_folder_stats
+from utils.chat_analytics import compute_chat_stats, compute_folder_stats, compute_usage_dashboard
 from utils.paths import get_chats_dir
 
 STYLE = """
@@ -143,4 +143,21 @@ class ChatAnalyticsDialog(QDialog):
             grid.addWidget(_stat_card(val, label, color), i // 3, i % 3)
 
         lay.addLayout(grid)
+
+        dashboard = compute_usage_dashboard(chats_dir)
+        breakdown = QTextEdit()
+        breakdown.setReadOnly(True)
+        breakdown.setMinimumHeight(180)
+
+        lines = ["📌 Usage Breakdown", "", "By Topic:"]
+        for topic, d in dashboard.get("by_topic", {}).items():
+            lines.append(f"- {topic}: {d.get('chats',0)} chats · {d.get('messages',0)} msgs · ~{d.get('tokens',0)} tok")
+
+        lines.append("")
+        lines.append("Recent Days:")
+        for day, d in list(dashboard.get("by_day", {}).items())[:7]:
+            lines.append(f"- {day}: {d.get('messages',0)} msgs · ~{d.get('tokens',0)} tok")
+
+        breakdown.setPlainText("\n".join(lines))
+        lay.addWidget(breakdown)
         lay.addStretch()

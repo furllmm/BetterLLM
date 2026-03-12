@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -38,6 +39,12 @@ def _save(prompts: List[Dict]) -> None:
 
 
 
+
+
+def _normalized_text(value: str) -> str:
+    """Normalize user-provided text for tolerant matching."""
+    return (value or "").strip().casefold()
+
 def _normalize_prompt(entry: Dict) -> Dict:
     """Ensure prompt entries always contain extended metadata keys."""
     e = dict(entry)
@@ -52,6 +59,23 @@ def _normalize_prompt(entry: Dict) -> Dict:
         e["tags"] = []
     return e
 
+
+
+
+def is_favorite_prompt(prompt: Dict) -> bool:
+    """Return True if prompt is marked as favorite by category or tags."""
+    p = _normalize_prompt(prompt)
+    category = _normalized_text(p.get("category"))
+    if category in {"favorites", "favorite"}:
+        return True
+    tags = p.get("tags") or []
+    normalized_tags = {_normalized_text(str(tag)) for tag in tags}
+    return bool({"favorite", "favorites", "fav", "star", "starred"} & normalized_tags)
+
+
+def get_favorite_prompts() -> List[Dict]:
+    """Return favorite prompts in default prompt ordering."""
+    return [p for p in get_all_prompts() if is_favorite_prompt(p)]
 
 def get_all_prompts() -> List[Dict]:
     """Return all prompts sorted by category then name."""
@@ -164,6 +188,15 @@ def initialize_defaults() -> None:
 
 def filter_prompts(app_name: str = "", programming_language: str = "", framework: str = "") -> List[Dict]:
     prompts = [_normalize_prompt(p) for p in _load()]
+    app = _normalized_text(app_name)
+    language = _normalized_text(programming_language)
+    fw = _normalized_text(framework)
+    if app:
+        prompts = [p for p in prompts if _normalized_text(p.get("app_name")) == app]
+    if language:
+        prompts = [p for p in prompts if _normalized_text(p.get("programming_language")) == language]
+    if fw:
+        prompts = [p for p in prompts if _normalized_text(p.get("framework")) == fw]
     if app_name:
         prompts = [p for p in prompts if p.get("app_name", "") == app_name]
     if programming_language:
@@ -174,6 +207,18 @@ def filter_prompts(app_name: str = "", programming_language: str = "", framework
 
 
 def get_unique_values(field: str) -> List[str]:
+    vals: Dict[str, str] = {}
+    for p in [_normalize_prompt(x) for x in _load()]:
+        raw = (p.get(field) or "").strip()
+        key = _normalized_text(raw)
+        if not key:
+            continue
+        existing = vals.get(key)
+        if existing is None:
+            vals[key] = raw
+        else:
+            vals[key] = min([existing, raw], key=lambda x: (x.isupper(), x.islower(), _normalized_text(x), x))
+    return [vals[k] for k in sorted(vals.keys())]
     vals = []
     seen = set()
     for p in [_normalize_prompt(x) for x in _load()]:
@@ -205,6 +250,11 @@ def export_prompts(path: Path, fmt: str = "json") -> Path:
             lines.append(f"- Feature: {p.get('feature_name','')}\n")
             lines.append(f"- Tags: {tags}\n\n")
             lines.append(f"{p.get('description','')}\n\n")
+            prompt_text = p.get("text", "")
+            fence = _markdown_fence_for_text(prompt_text)
+            lines.append(f"{fence}\n")
+            lines.append(prompt_text + "\n")
+            lines.append(f"{fence}\n\n")
             lines.append("```\n")
             lines.append(p.get("text", "") + "\n")
             lines.append("```\n\n")
@@ -264,6 +314,28 @@ def import_prompts(path: Path, merge_duplicates: bool = True) -> int:
     return imported
 
 
+
+
+def _markdown_fence_for_text(text: str) -> str:
+    """Return a backtick fence that won't conflict with the given text content."""
+    content = text or ""
+    runs = re.findall(r"`+", content)
+    max_run = max((len(x) for x in runs), default=0)
+    return "`" * max(3, max_run + 1)
+
+def _prompt_version_sort_key(version: str) -> tuple:
+    """Sort prompt versions naturally (v2 < v10), with fallback for non-numeric labels."""
+    raw = (version or "").strip().lower()
+    m = re.match(r"^v?(\d+)$", raw)
+    if m:
+        return 0, int(m.group(1)), raw
+    return 1, 0, raw
+
+
+def get_app_prompt_timeline(app_name: str) -> List[Dict]:
+    """Return prompts for a specific app, ordered chronologically."""
+    app = _normalized_text(app_name)
+    if not app:
 def get_app_prompt_timeline(app_name: str) -> List[Dict]:
     """Return prompts for a specific app, ordered chronologically."""
     if not app_name:
@@ -271,6 +343,9 @@ def get_app_prompt_timeline(app_name: str) -> List[Dict]:
     prompts = [
         _normalize_prompt(p)
         for p in _load()
+        if _normalized_text(p.get("app_name")) == app
+    ]
+    return sorted(prompts, key=lambda p: (p.get("created_at", ""), _prompt_version_sort_key(p.get("prompt_version", "")), _normalized_text(p.get("name"))))
         if (p.get("app_name") or "") == app_name
     ]
     return sorted(prompts, key=lambda p: (p.get("created_at", ""), p.get("prompt_version", "")))
@@ -279,6 +354,78 @@ def get_app_prompt_timeline(app_name: str) -> List[Dict]:
 def get_prompt_feature_map(app_name: str = "") -> Dict[str, List[Dict]]:
     """Return mapping: feature_name -> prompt entries (optionally filtered by app)."""
     prompts = [_normalize_prompt(p) for p in _load()]
+    app = _normalized_text(app_name)
+    if app:
+        prompts = [p for p in prompts if _normalized_text(p.get("app_name")) == app]
+
+    grouped: Dict[str, List[Dict]] = {}
+    labels: Dict[str, str] = {}
+    for p in prompts:
+        feature_label = (p.get("feature_name") or "").strip() or "(unmapped)"
+        feature_key = _normalized_text(feature_label)
+        if not feature_key:
+            feature_key = "(unmapped)"
+
+        existing = labels.get(feature_key)
+        if existing is None:
+            labels[feature_key] = feature_label
+        else:
+            candidate = min([existing, feature_label], key=lambda x: (_normalized_text(x), x))
+            labels[feature_key] = candidate
+
+        grouped.setdefault(feature_key, []).append(p)
+
+    mapping: Dict[str, List[Dict]] = {}
+    ordered_items = sorted(
+        grouped.items(),
+        key=lambda item: _normalized_text(labels.get(item[0], item[0]))
+    )
+    for feature_key, entries in ordered_items:
+        label = labels.get(feature_key, feature_key)
+        mapping[label] = sorted(entries, key=lambda x: (x.get("created_at", ""), _prompt_version_sort_key(x.get("prompt_version", "")), _normalized_text(x.get("name"))))
+    return mapping
+
+
+def get_replay_sequence(app_name: str, feature_name: str = "") -> List[Dict]:
+    """Return chronological prompt sequence for an app (optionally a specific feature)."""
+    app = _normalized_text(app_name)
+    if not app:
+        return []
+    prompts = [
+        _normalize_prompt(p) for p in _load()
+        if _normalized_text(p.get("app_name")) == app
+    ]
+    feature = _normalized_text(feature_name)
+    if feature:
+        prompts = [p for p in prompts if _normalized_text(p.get("feature_name")) == feature]
+    return sorted(prompts, key=lambda p: (p.get("created_at", ""), _prompt_version_sort_key(p.get("prompt_version", "")), _normalized_text(p.get("name"))))
+
+
+def build_replay_script(app_name: str, feature_name: str = "") -> str:
+    """Build a replay-ready markdown script from prompt sequence."""
+    app_raw = (app_name or "").strip()
+    feature_raw = (feature_name or "").strip()
+    seq = get_replay_sequence(app_raw, feature_raw)
+    if not seq:
+        return ""
+
+    title = f"# Prompt Replay: {app_raw}"
+    if feature_raw:
+        title += f" / {feature_raw}"
+
+    lines = [title, ""]
+    for i, p in enumerate(seq, start=1):
+        lines.append(f"## Step {i} · {p.get('name','Untitled')} · {p.get('prompt_version','v1')}")
+        lines.append(f"Date: {p.get('created_at','')}")
+        if p.get("description"):
+            lines.append(f"Desc: {p.get('description')}")
+        prompt_text = p.get("text", "")
+        fence = _markdown_fence_for_text(prompt_text)
+        lines.append(fence)
+        lines.append(prompt_text)
+        lines.append(fence)
+        lines.append("")
+    return "\n".join(lines)
     if app_name:
         prompts = [p for p in prompts if (p.get("app_name") or "") == app_name]
     mapping: Dict[str, List[Dict]] = {}

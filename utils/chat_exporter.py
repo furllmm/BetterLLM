@@ -193,3 +193,30 @@ def export_folder(
         if out:
             results.append(out)
     return results
+
+
+def export_folder_detailed(folder_path: Path, output_dir: Path, fmt: str = "markdown") -> dict:
+    """Export all chats in folder with summary details."""
+    total = 0
+    success = 0
+    failed = 0
+    outputs: List[Path] = []
+    errors: List[str] = []
+
+    for chat_file in sorted(folder_path.glob("*.jsonl")):
+        total += 1
+        out = export_chat(chat_file, output_dir / folder_path.name, fmt)
+        if out:
+            success += 1
+            outputs.append(out)
+        else:
+            failed += 1
+            errors.append(chat_file.name)
+
+    return {
+        "total": total,
+        "success": success,
+        "failed": failed,
+        "outputs": outputs,
+        "errors": errors,
+    }

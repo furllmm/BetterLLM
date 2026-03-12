@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton,
     QListWidget, QListWidgetItem, QTextEdit, QComboBox, QSplitter,
+    QWidget, QFrame, QMessageBox, QInputDialog, QDialogButtonBox, QFileDialog, QCheckBox,
     QWidget, QFrame, QMessageBox, QInputDialog, QDialogButtonBox, QFileDialog,
 )
 from PySide6.QtGui import QFont
@@ -67,6 +68,8 @@ class AddPromptDialog(QDialog):
         meta_row4 = QHBoxLayout()
         self.tags_edit = QLineEdit(); self.tags_edit.setPlaceholderText("Tags (comma-separated)")
         meta_row4.addWidget(self.tags_edit)
+        self.favorite_check = QCheckBox("⭐ Favorite")
+        meta_row4.addWidget(self.favorite_check)
         layout.addLayout(meta_row4)
 
         layout.addWidget(QLabel("Prompt Text:"))
@@ -91,6 +94,8 @@ class AddPromptDialog(QDialog):
 
     def get_data(self):
         tags = [t.strip() for t in self.tags_edit.text().split(",") if t.strip()]
+        if self.favorite_check.isChecked() and all((tag or "").strip().casefold() != "favorite" for tag in tags):
+            tags.append("favorite")
         return {
             "name": self.name_edit.text().strip(),
             "category": self.cat_combo.currentText().strip() or "General",
@@ -295,6 +300,7 @@ class PromptLibraryDialog(QDialog):
         cats = lib.get_categories()
         self.cat_filter.clear()
         self.cat_filter.addItem("All Categories")
+        self.cat_filter.addItem("⭐ Favorites")
         self.cat_filter.addItems(cats)
 
         self.app_filter.clear()
@@ -314,7 +320,8 @@ class PromptLibraryDialog(QDialog):
     def _display_prompts(self, prompts):
         self.prompt_list.clear()
         for p in prompts:
-            item = QListWidgetItem(f"{p.get('name', 'Untitled')}")
+            prefix = "⭐ " if lib.is_favorite_prompt(p) else ""
+            item = QListWidgetItem(f"{prefix}{p.get('name', 'Untitled')}")
             item.setData(Qt.UserRole, p["id"])
             tooltip = (f"Category: {p.get('category', '')} | App: {p.get('app_name', '')} | Lang: {p.get('programming_language', '')}\n"                       f"{p.get('description', '')}")
             item.setToolTip(tooltip)
@@ -330,7 +337,9 @@ class PromptLibraryDialog(QDialog):
             prompts = lib.search_prompts(query)
         else:
             prompts = self._all_prompts
-        if cat and cat != "All Categories":
+        if cat == "⭐ Favorites":
+            prompts = [p for p in prompts if lib.is_favorite_prompt(p)]
+        elif cat and cat != "All Categories":
             prompts = [p for p in prompts if p.get("category") == cat]
         if app and app != "All Apps":
             prompts = [p for p in prompts if p.get("app_name", "") == app]
@@ -399,6 +408,7 @@ class PromptLibraryDialog(QDialog):
         dlg.version_edit.setText(prompt.get("prompt_version", "v1"))
         dlg.feature_edit.setText(prompt.get("feature_name", ""))
         dlg.tags_edit.setText(", ".join(prompt.get("tags", [])))
+        dlg.favorite_check.setChecked(lib.is_favorite_prompt(prompt))
         idx = dlg.cat_combo.findText(prompt.get("category", ""))
         if idx >= 0:
             dlg.cat_combo.setCurrentIndex(idx)

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from utils.chat_exporter import export_chat, export_folder, export_folder_detailed
 from utils.chat_exporter import export_chat, export_folder
 
 
@@ -58,3 +59,28 @@ def test_export_chat_html_does_not_nest_pre_wrappers(tmp_path: Path):
     assert out is not None
     html = out.read_text(encoding="utf-8")
     assert '<pre><div class="highlight"' not in html
+
+
+
+def test_export_folder_detailed_counts_failures(tmp_path: Path):
+    folder = tmp_path / "topic2"
+    folder.mkdir()
+    _write_chat(folder / "ok.jsonl", [{"role": "user", "content": "A", "timestamp": "2024-01-01T00:00:00"}])
+    # invalid json lines file (will parse as empty but still exportable). Force failure by invalid format call below
+
+    summary = export_folder_detailed(folder, tmp_path / "exports", fmt="txt")
+    assert summary["total"] == 1
+    assert summary["success"] == 1
+    assert summary["failed"] == 0
+
+
+def test_export_folder_detailed_invalid_format_reports_failures(tmp_path: Path):
+    folder = tmp_path / "topic3"
+    folder.mkdir()
+    _write_chat(folder / "a.jsonl", [{"role": "user", "content": "A", "timestamp": "2024-01-01T00:00:00"}])
+
+    summary = export_folder_detailed(folder, tmp_path / "exports", fmt="invalid")
+    assert summary["total"] == 1
+    assert summary["success"] == 0
+    assert summary["failed"] == 1
+    assert "a.jsonl" in summary["errors"]

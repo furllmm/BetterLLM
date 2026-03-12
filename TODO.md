@@ -2,6 +2,14 @@
 
 Bu dosya tamamlanan ve bekleyen işleri hızlıca görmek için tutulur.
 
+## 📌 Hızlı Durum Özeti
+- **Tamamlanan ana başlıklar:** 21
+- **Kısmen tamamlanan başlıklar:** 3
+- **Sıradaki önerilen işler:** 5
+- **Genel durum:** Çekirdek özellikler **tamamlandı**; kalan maddeler kalite/UX ve ileri seviye geliştirme odaklı.
+
+> Kısaca: “Hepsi bitti mi?” sorusunun cevabı **hayır**; ancak ana işlerin büyük kısmı bitti, kalanlar iyileştirme backlog’u.
+
 ## ✅ Tamamlananlar
 - Session restore altyapısı (tema, geometri, splitter, son chat yolu, draft, panel görünürlükleri, model topic)
 - Otomatik session/autosave state kaydı
