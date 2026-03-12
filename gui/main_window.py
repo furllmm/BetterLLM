@@ -1665,6 +1665,7 @@ class MainWindow(QMainWindow):
 
     def _export_folder_path(self, folder_path: Path, fmt: str = None) -> None:
         from utils.chat_exporter import export_folder_detailed
+        from utils.chat_exporter import export_folder
         if fmt is None:
             items = ["Markdown (.md)", "HTML (.html)", "JSON (.json)", "Plain Text (.txt)"]
             item, ok = QInputDialog.getItem(self, "Folder Export Format", "Choose format:", items, 0, False)

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QVBoxLayout, QLabel, QLineEdit, QPushButton,
     QListWidget, QListWidgetItem, QTextEdit, QComboBox, QSplitter,
     QWidget, QFrame, QMessageBox, QInputDialog, QDialogButtonBox, QFileDialog, QCheckBox,
+    QWidget, QFrame, QMessageBox, QInputDialog, QDialogButtonBox, QFileDialog,
 )
 from PySide6.QtGui import QFont
 

@@ -197,6 +197,12 @@ def filter_prompts(app_name: str = "", programming_language: str = "", framework
         prompts = [p for p in prompts if _normalized_text(p.get("programming_language")) == language]
     if fw:
         prompts = [p for p in prompts if _normalized_text(p.get("framework")) == fw]
+    if app_name:
+        prompts = [p for p in prompts if p.get("app_name", "") == app_name]
+    if programming_language:
+        prompts = [p for p in prompts if p.get("programming_language", "") == programming_language]
+    if framework:
+        prompts = [p for p in prompts if p.get("framework", "") == framework]
     return prompts
 
 
@@ -213,6 +219,14 @@ def get_unique_values(field: str) -> List[str]:
         else:
             vals[key] = min([existing, raw], key=lambda x: (x.isupper(), x.islower(), _normalized_text(x), x))
     return [vals[k] for k in sorted(vals.keys())]
+    vals = []
+    seen = set()
+    for p in [_normalize_prompt(x) for x in _load()]:
+        v = (p.get(field) or "").strip()
+        if v and v not in seen:
+            seen.add(v)
+            vals.append(v)
+    return sorted(vals)
 
 
 def export_prompts(path: Path, fmt: str = "json") -> Path:
@@ -241,6 +255,9 @@ def export_prompts(path: Path, fmt: str = "json") -> Path:
             lines.append(f"{fence}\n")
             lines.append(prompt_text + "\n")
             lines.append(f"{fence}\n\n")
+            lines.append("```\n")
+            lines.append(p.get("text", "") + "\n")
+            lines.append("```\n\n")
         path.write_text("".join(lines), encoding="utf-8")
     else:
         raise ValueError(f"Unsupported export format: {fmt}")
@@ -319,6 +336,9 @@ def get_app_prompt_timeline(app_name: str) -> List[Dict]:
     """Return prompts for a specific app, ordered chronologically."""
     app = _normalized_text(app_name)
     if not app:
+def get_app_prompt_timeline(app_name: str) -> List[Dict]:
+    """Return prompts for a specific app, ordered chronologically."""
+    if not app_name:
         return []
     prompts = [
         _normalize_prompt(p)
@@ -326,6 +346,9 @@ def get_app_prompt_timeline(app_name: str) -> List[Dict]:
         if _normalized_text(p.get("app_name")) == app
     ]
     return sorted(prompts, key=lambda p: (p.get("created_at", ""), _prompt_version_sort_key(p.get("prompt_version", "")), _normalized_text(p.get("name"))))
+        if (p.get("app_name") or "") == app_name
+    ]
+    return sorted(prompts, key=lambda p: (p.get("created_at", ""), p.get("prompt_version", "")))
 
 
 def get_prompt_feature_map(app_name: str = "") -> Dict[str, List[Dict]]:
@@ -403,3 +426,12 @@ def build_replay_script(app_name: str, feature_name: str = "") -> str:
         lines.append(fence)
         lines.append("")
     return "\n".join(lines)
+    if app_name:
+        prompts = [p for p in prompts if (p.get("app_name") or "") == app_name]
+    mapping: Dict[str, List[Dict]] = {}
+    for p in prompts:
+        feature = (p.get("feature_name") or "").strip() or "(unmapped)"
+        mapping.setdefault(feature, []).append(p)
+    for feature in list(mapping.keys()):
+        mapping[feature] = sorted(mapping[feature], key=lambda x: x.get("created_at", ""))
+    return mapping
