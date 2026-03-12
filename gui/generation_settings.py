@@ -11,10 +11,12 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QSlider, QSpinBox, QDoubleSpinBox, QGroupBox, QComboBox,
-    QDialogButtonBox, QWidget, QGridLayout,
+    QDialogButtonBox, QWidget, QGridLayout, QInputDialog, QMessageBox,
 )
 
 logger = logging.getLogger(__name__)
+
+from utils.generation_presets import load_custom_presets, save_custom_preset, delete_custom_preset
 
 PRESETS = {
     "Precise": {"temperature": 0.2, "top_p": 0.9, "top_k": 20, "repeat_penalty": 1.15, "max_tokens": 512},
@@ -85,6 +87,8 @@ class GenerationSettingsDialog(QDialog):
         self.setMinimumWidth(480)
         self.setStyleSheet(SETTINGS_STYLE)
         self._params = dict(current_params)
+        self._custom_presets = load_custom_presets()
+        self._presets = {**PRESETS, **self._custom_presets}
         self._build_ui()
 
     def _build_ui(self):
@@ -95,9 +99,17 @@ class GenerationSettingsDialog(QDialog):
         preset_row = QHBoxLayout()
         preset_row.addWidget(QLabel("Preset:"))
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems(list(PRESETS.keys()))
+        self.preset_combo.addItems(list(self._presets.keys()))
         self.preset_combo.currentTextChanged.connect(self._apply_preset)
         preset_row.addWidget(self.preset_combo, 1)
+        self.btn_save_preset = QPushButton("Save As")
+        self.btn_save_preset.setObjectName("secondary")
+        self.btn_save_preset.clicked.connect(self._save_current_as_preset)
+        preset_row.addWidget(self.btn_save_preset)
+        self.btn_delete_preset = QPushButton("Delete")
+        self.btn_delete_preset.setObjectName("secondary")
+        self.btn_delete_preset.clicked.connect(self._delete_selected_preset)
+        preset_row.addWidget(self.btn_delete_preset)
         layout.addLayout(preset_row)
 
         # Parameters group
@@ -156,7 +168,7 @@ class GenerationSettingsDialog(QDialog):
         layout.addWidget(buttons)
 
     def _apply_preset(self, preset_name: str):
-        p = PRESETS.get(preset_name, {})
+        p = self._presets.get(preset_name, {})
         if not p:
             return
         self.temp_slider.setValue(int(p["temperature"] * 100))

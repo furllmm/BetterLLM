@@ -9,6 +9,8 @@ import json
 import re
 from typing import List, Optional
 
+from utils import favorites_library as fav_lib
+
 from PySide6.QtCore import Qt, Signal, QThread
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
@@ -52,7 +54,9 @@ class SuggestionWorker(QThread):
             if match:
                 suggestions = json.loads(match.group())
                 if isinstance(suggestions, list):
-                    self.suggestions_ready.emit([str(s) for s in suggestions[:4]])
+                    suggestions = [str(s) for s in suggestions]
+                    suggestions = fav_lib.personalize_suggestions(suggestions, limit=4)
+                    self.suggestions_ready.emit(suggestions)
         except Exception:
             pass
 

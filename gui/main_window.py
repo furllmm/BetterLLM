@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Optional, Dict
 
 from PySide6.QtCore import QThread, QTimer, Signal, Qt, QSize
-from PySide6.QtGui import (QTextCursor, QGuiApplication, QFont, QColor,
+from PySide6.QtGui import (QTextCursor, QGuiApplication, QFont, QColor, QTextCharFormat,
                             QKeySequence, QShortcut, QIcon)
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QHBoxLayout, QLabel, QLineEdit, QMainWindow,
@@ -183,6 +183,9 @@ class MainWindow(QMainWindow):
         self._current_theme = "dark"
         self._active_profile: str = "Default"
         self._current_messages: List[Dict] = []  # track messages for bookmarking/editing
+        self._regen_previous_response: Optional[str] = None
+        self._regen_pending_compare: bool = False
+        self._last_ctx_status: str = "ok"
 
         # Chat indexer
         self._indexer = ChatIndexer()
@@ -522,7 +525,7 @@ class MainWindow(QMainWindow):
         self.btn_benchmark.clicked.connect(self.open_benchmark)
         self.btn_timeline.clicked.connect(self.toggle_timeline)
         self.btn_suggest.clicked.connect(self.toggle_suggestions)
-        self.lan_checkbox.clicked.connect(self.toggle_lan_mode)
+        self.lan_checkbox.toggled.connect(self.toggle_lan_mode)
         self.history_tree.itemClicked.connect(self.load_selected_chat)
 
         # Keyboard shortcuts
@@ -856,30 +859,89 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        sw = self._state.get("sidebar_width", 240)
-        total = self.splitter.width() or 1200
-        self.splitter.setSizes([sw, max(400, total - sw)])
+        splitter_sizes = self._state.get("splitter_sizes")
+        if isinstance(splitter_sizes, list) and len(splitter_sizes) == 4:
+            try:
+                self.splitter.setSizes([max(0, int(v)) for v in splitter_sizes])
+            except Exception:
+                splitter_sizes = None
+
+        if not splitter_sizes:
+            sw = self._state.get("sidebar_width", 240)
+            total = self.splitter.width() or 1200
+            self.splitter.setSizes([sw, max(400, total - sw), 0, 0])
+
+        self.lan_checkbox.setChecked(bool(self._state.get("lan_checked", False)))
+        self.timeline_panel.setVisible(bool(self._state.get("timeline_visible", False)))
+        self.suggestion_sidebar.setVisible(bool(self._state.get("suggestions_visible", False)))
+        draft = self._state.get("input_draft", "")
+        if draft:
+            self.input_box.setText(draft)
 
         last_chat = self._state.get("last_chat_path")
         if last_chat and os.path.exists(last_chat):
             self._load_chat_file(Path(last_chat))
+
+            # Restore per-chat scroll position after render is complete.
+            scroll_state = self._state.get("chat_scroll_positions", {})
+            scroll_pos = scroll_state.get(last_chat, self._state.get("scroll_position", 0))
+            sb = self.chat_history.verticalScrollBar()
+            QTimer.singleShot(0, lambda: sb.setValue(max(0, min(int(scroll_pos), sb.maximum()))))
+
+        # Restore previously active model in the background.
+        active_model_topic = self._state.get("active_model_topic")
+        if active_model_topic:
+            self.model_manager.start_load_async(
+                active_model_topic,
+                on_complete=lambda _t: QTimer.singleShot(0, self._update_status),
+                on_error=lambda _t, _e: logger.warning("Failed to restore model %s", active_model_topic),
+            )
 
     def _save_session(self) -> None:
         self._state.update({
             "last_chat_path": self._current_chat_path,
             "theme": self._current_theme,
             "sidebar_width": self.splitter.sizes()[0],
+            "splitter_sizes": self.splitter.sizes(),
             "mem_checked": self.mem_checkbox.isChecked(),
             "deep_checked": self.deep_checkbox.isChecked(),
             "kb_checked": self.kb_checkbox.isChecked(),
+            "lan_checked": self.lan_checkbox.isChecked(),
             "window_geometry": bytes(self.saveGeometry()).hex(),
             "generation_params": self._gen_params,
             "active_preset": self._state.get("active_preset", "Balanced"),
             "active_profile": self._active_profile,
+            "active_model_topic": self.model_manager.get_active_model_topic(),
+            "scroll_position": self.chat_history.verticalScrollBar().value(),
         })
+
+        scroll_map = self._state.get("chat_scroll_positions", {})
+        if not isinstance(scroll_map, dict):
+            scroll_map = {}
+        if self._current_chat_path:
+            scroll_map[self._current_chat_path] = self.chat_history.verticalScrollBar().value()
+
+        # Keep map bounded and discard entries for files that no longer exist.
+        existing = {k: v for k, v in scroll_map.items() if isinstance(k, str) and os.path.exists(k)}
+        if len(existing) > 500:
+            existing_items = list(existing.items())[-500:]
+            existing = dict(existing_items)
+        self._state["chat_scroll_positions"] = existing
+
+        # Keep lightweight draft/input UI state.
+        self._state["input_draft"] = self.input_box.text()
+        self._state["timeline_visible"] = self.timeline_panel.isVisible()
+        self._state["suggestions_visible"] = self.suggestion_sidebar.isVisible()
+
         ss.save_session(self._state)
 
     def _autosave(self) -> None:
+        if self._current_chat_path:
+            scroll_map = self._state.get("chat_scroll_positions", {})
+            if not isinstance(scroll_map, dict):
+                scroll_map = {}
+            scroll_map[self._current_chat_path] = self.chat_history.verticalScrollBar().value()
+            self._state["chat_scroll_positions"] = scroll_map
         self._save_session()
 
     # ── History Tree ──────────────────────────────────────────────────────────
@@ -986,6 +1048,7 @@ class MainWindow(QMainWindow):
         if is_folder:
             menu.addSeparator()
             act_rename_folder = menu.addAction("✏️ Klasörü Yeniden Adlandır")
+            act_export_folder = menu.addAction("📦 Klasörü Dışa Aktar")
             act_delete_folder = menu.addAction("🗑 Klasörü Sil")
         elif path:
             menu.addSeparator()
@@ -1011,6 +1074,8 @@ class MainWindow(QMainWindow):
             folder_path = item.data(0, Qt.UserRole + 2)
             if act == act_rename_folder:
                 self._rename_folder(folder_path, item)
+            elif act == act_export_folder:
+                self._export_folder_path(Path(folder_path))
             elif act == act_delete_folder:
                 self._delete_folder(folder_path)
         elif path:
@@ -1175,6 +1240,7 @@ class MainWindow(QMainWindow):
     def _load_chat_file(self, path: Path, scroll_to: int = -1) -> None:
         self._current_chat_path = str(path)
         self.chat_history.clear()
+        self.chat_history.setExtraSelections([])
         self._current_messages = []
         try:
             messages = []
@@ -1201,26 +1267,27 @@ class MainWindow(QMainWindow):
                     pass
 
                 self._append_message_html(m["role"], m["content"],
-                                          ts_str, estimate_tokens=True)
+                                          ts_str, estimate_tokens=True, message_index=i)
 
             if scroll_to >= 0:
-                # Scroll to approximate line position
-                doc = self.chat_history.document()
-                cursor = QTextCursor(doc)
-                cursor.movePosition(QTextCursor.Start)
-                for _ in range(scroll_to):
-                    cursor.movePosition(QTextCursor.NextBlock)
-                self.chat_history.setTextCursor(cursor)
-                self.chat_history.ensureCursorVisible()
+                self.chat_history.scrollToAnchor(f"msg-{max(0, scroll_to)}")
             else:
-                self.chat_history.moveCursor(QTextCursor.End)
+                # Restore remembered per-chat scroll (fallback to bottom).
+                scroll_state = self._state.get("chat_scroll_positions", {})
+                saved_scroll = int(scroll_state.get(str(path), self._state.get("scroll_position", -1)))
+                sb = self.chat_history.verticalScrollBar()
+                if saved_scroll >= 0:
+                    QTimer.singleShot(0, lambda: sb.setValue(max(0, min(saved_scroll, sb.maximum()))))
+                else:
+                    self.chat_history.moveCursor(QTextCursor.End)
 
             self._update_ctx_bar()
         except Exception as e:
             self.chat_history.append(f"<span style='color:red'>Error loading: {e}</span>")
 
     def _append_message_html(self, role: str, content: str,
-                              timestamp: str = "", estimate_tokens: bool = False) -> None:
+                              timestamp: str = "", estimate_tokens: bool = False,
+                              message_index: Optional[int] = None) -> None:
         c = DARK if self._current_theme == "dark" else LIGHT
         is_user = role == "user"
 
@@ -1243,7 +1310,10 @@ class MainWindow(QMainWindow):
             tok = et(content)
             tok_info = f"<span class='tok-count'>~{tok} tokens</span>"
 
+        anchor = f"<a name='msg-{message_index}'></a>" if message_index is not None else ""
+
         html = (
+            anchor +
             f"<div class='msg-row {row_cls}'>"
             # Header row: avatar + name + timestamp
             f"<div class='msg-header'>"
@@ -1263,6 +1333,7 @@ class MainWindow(QMainWindow):
         self.session._session_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         self._current_chat_path = None
         self.chat_history.clear()
+        self.chat_history.setExtraSelections([])
         c = DARK if self._current_theme == "dark" else LIGHT
         bg = c["bg"]
         text_dim = c["text_dim"]
@@ -1355,10 +1426,17 @@ class MainWindow(QMainWindow):
         self.chat_worker.start()
 
     def _handle_batch(self, text: str) -> None:
-        # During streaming: just append raw text (fast)
-        self.chat_history.moveCursor(QTextCursor.End)
-        self.chat_history.insertPlainText(text)
-        self.chat_history.moveCursor(QTextCursor.End)
+        # During streaming: append plain text in small batches for smoother UI.
+        sb = self.chat_history.verticalScrollBar()
+        keep_bottom = sb.value() >= (sb.maximum() - 4)
+
+        cursor = self.chat_history.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        cursor.insertText(text)
+        self.chat_history.setTextCursor(cursor)
+
+        if keep_bottom:
+            sb.setValue(sb.maximum())
 
     def _handle_finished(self, full_text: str, tps: float) -> None:
         self._tps_history.append(tps)
@@ -1377,6 +1455,11 @@ class MainWindow(QMainWindow):
         self.btn_stop.setEnabled(False)
         self.input_box.setFocus()
         self.load_chat_history()
+
+        if self._regen_pending_compare and self._regen_previous_response:
+            self._show_regen_compare(self._regen_previous_response, full_text)
+        self._regen_pending_compare = False
+        self._regen_previous_response = None
 
         # Update timeline
         self._refresh_timeline()
@@ -1415,7 +1498,7 @@ class MainWindow(QMainWindow):
     def refresh_current_view(self) -> None:
         self.chat_history.clear()
         prev_date: Optional[date] = None
-        for m in self.session._history:
+        for i, m in enumerate(self.session._history):
             ts = m.timestamp
             try:
                 msg_date = datetime.fromisoformat(ts).date()
@@ -1425,7 +1508,7 @@ class MainWindow(QMainWindow):
                     prev_date = msg_date
             except Exception:
                 pass
-            self._append_message_html(m.role, m.content, ts, estimate_tokens=True)
+            self._append_message_html(m.role, m.content, ts, estimate_tokens=True, message_index=i)
         self.chat_history.moveCursor(QTextCursor.End)
         self._refresh_timeline()
 
@@ -1449,8 +1532,17 @@ class MainWindow(QMainWindow):
         )
         if status == "critical":
             self.ctx_lbl.setStyleSheet(f"color: {c['danger']}; font-size: 11px; font-weight: bold;")
+        elif status == "warning":
+            self.ctx_lbl.setStyleSheet(f"color: {c['warning']}; font-size: 11px; font-weight: 600;")
         else:
             self.ctx_lbl.setStyleSheet(f"color: {c['text_dim']}; font-size: 11px;")
+
+        if status != self._last_ctx_status:
+            if status == "warning":
+                self.statusBar().showMessage("⚠ Context usage is high. Consider summarizing or pruning messages.", 4000)
+            elif status == "critical":
+                self.statusBar().showMessage("🛑 Context limit is near. Responses may degrade or truncate.", 5000)
+            self._last_ctx_status = status
 
     # ── Generation Settings ───────────────────────────────────────────────────
     def open_gen_settings(self) -> None:
@@ -1478,17 +1570,75 @@ class MainWindow(QMainWindow):
         dlg.jump_to_message.connect(self._jump_to_search_result)
         dlg.show_and_focus()
 
-    def _jump_to_search_result(self, chat_path: str, message_index: int) -> None:
+    def _jump_to_search_result(self, chat_path: str, message_index: int, query: str = "") -> None:
         if os.path.exists(chat_path):
             self._load_chat_file(Path(chat_path), scroll_to=message_index)
+            if query:
+                self._highlight_in_chat(query)
             self.load_chat_history()
+
+    def _highlight_in_chat(self, query: str) -> None:
+        if not query:
+            self.chat_history.setExtraSelections([])
+            return
+
+        text = self.chat_history.toPlainText()
+        q = query.lower()
+        text_l = text.lower()
+
+        positions = []
+        pos = 0
+        while True:
+            pos = text_l.find(q, pos)
+            if pos == -1:
+                break
+            positions.append(pos)
+            pos += len(query)
+
+        if not positions:
+            self.chat_history.setExtraSelections([])
+            return
+
+        sels = []
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor("#f59e0b55"))
+
+        for p0 in positions:
+            cursor = self.chat_history.textCursor()
+            cursor.setPosition(p0)
+            cursor.setPosition(p0 + len(query), QTextCursor.KeepAnchor)
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = cursor
+            sel.format = fmt
+            sels.append(sel)
+
+        self.chat_history.setExtraSelections(sels)
+        self.chat_history.setTextCursor(sels[0].cursor)
+        self.chat_history.ensureCursorVisible()
 
     # ── Export ────────────────────────────────────────────────────────────────
     def export_current_chat(self) -> None:
         if not self._current_chat_path:
             QMessageBox.information(self, "Export", "No chat is currently open.")
             return
-        self._export_chat_path(Path(self._current_chat_path))
+
+        chat_path = Path(self._current_chat_path)
+        folder_path = chat_path.parent
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Export",
+            "What would you like to export?",
+            ["Current chat", f"Entire folder ({folder_path.name})"],
+            0,
+            False,
+        )
+        if not ok:
+            return
+
+        if choice.startswith("Entire folder"):
+            self._export_folder_path(folder_path)
+        else:
+            self._export_chat_path(chat_path)
 
     def _export_chat_path(self, path: Path, fmt: str = None) -> None:
         from utils.chat_exporter import export_chat
@@ -1511,6 +1661,29 @@ class MainWindow(QMainWindow):
                 os.startfile(Path(out_dir))
         else:
             QMessageBox.critical(self, "Export Failed", "Could not export the chat.")
+
+
+    def _export_folder_path(self, folder_path: Path, fmt: str = None) -> None:
+        from utils.chat_exporter import export_folder_detailed
+        if fmt is None:
+            items = ["Markdown (.md)", "HTML (.html)", "JSON (.json)", "Plain Text (.txt)"]
+            item, ok = QInputDialog.getItem(self, "Folder Export Format", "Choose format:", items, 0, False)
+            if not ok:
+                return
+            fmt = {"Markdown (.md)": "markdown", "HTML (.html)": "html",
+                   "JSON (.json)": "json", "Plain Text (.txt)": "txt"}[item]
+
+        out_dir = QFileDialog.getExistingDirectory(self, "Select Export Folder")
+        if not out_dir:
+            return
+
+        results = export_folder(folder_path, Path(out_dir), fmt)
+        if results:
+            QMessageBox.information(self, "Exported", f"Exported {len(results)} chats to:\n{Path(out_dir) / folder_path.name}")
+            if os.name == "nt":
+                os.startfile(Path(out_dir))
+        else:
+            QMessageBox.warning(self, "Export", "No chat files were exported from this folder.")
 
     # ── Upload / Attach ───────────────────────────────────────────────────────
     def upload_image(self) -> None:
@@ -1656,24 +1829,70 @@ class MainWindow(QMainWindow):
 
     # ── Regenerate Response ───────────────────────────────────────────────────
     def regenerate_response(self) -> None:
-        """Remove last assistant message and regenerate it."""
+        """Regenerate the last assistant response while preserving previous output for comparison."""
         if self.chat_worker and self.chat_worker.isRunning():
             return
+
         history = self.session._history
-        if not history:
+        if len(history) < 2:
             return
-        # Remove last assistant message
-        while history and history[-1].role == "assistant":
-            history.pop()
-        # Get last user message
-        if not history or history[-1].role != "user":
+
+        # Find the last assistant/user pair.
+        asst_idx = next((i for i in range(len(history) - 1, -1, -1) if history[i].role == "assistant"), -1)
+        if asst_idx <= 0:
             return
-        last_user = history.pop()
-        # Restore input and send
-        self.input_box.setText(last_user.content)
+        user_idx = next((i for i in range(asst_idx - 1, -1, -1) if history[i].role == "user"), -1)
+        if user_idx < 0:
+            return
+
+        prev_response = history[asst_idx].content
+        prompt = history[user_idx].content
+
+        # Keep everything before the selected user message; new exchange will be appended.
+        self.session._history = history[:user_idx]
+
+        self._regen_previous_response = prev_response
+        self._regen_pending_compare = True
+
+        self.input_box.setText(prompt)
         self.refresh_current_view()
         self._update_ctx_bar()
         self.send_message()
+
+    def _show_regen_compare(self, previous: str, current: str) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Compare Responses")
+        dlg.resize(980, 620)
+
+        lay = QVBoxLayout(dlg)
+        split = QSplitter(Qt.Horizontal)
+
+        left = QWidget()
+        left_l = QVBoxLayout(left)
+        left_l.addWidget(QLabel("Previous"))
+        prev_box = QTextEdit()
+        prev_box.setReadOnly(True)
+        prev_box.setPlainText(previous)
+        left_l.addWidget(prev_box)
+
+        right = QWidget()
+        right_l = QVBoxLayout(right)
+        right_l.addWidget(QLabel("Regenerated"))
+        cur_box = QTextEdit()
+        cur_box.setReadOnly(True)
+        cur_box.setPlainText(current)
+        right_l.addWidget(cur_box)
+
+        split.addWidget(left)
+        split.addWidget(right)
+        split.setSizes([490, 490])
+        lay.addWidget(split)
+
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        lay.addWidget(close_btn, alignment=Qt.AlignRight)
+
+        dlg.exec()
 
     # ── Chat Summarization ────────────────────────────────────────────────────
     def summarize_chat(self) -> None:
@@ -1856,17 +2075,7 @@ class MainWindow(QMainWindow):
 
     def _jump_to_timeline_message(self, index: int) -> None:
         """Scroll chat view to a specific message index."""
-        doc = self.chat_history.document()
-        # Count block elements to find approximate position
-        cursor = self.chat_history.textCursor()
-        cursor.movePosition(QTextCursor.Start)
-        block_count = 0
-        target_block = max(0, index * 3)  # approx 3 blocks per message
-        while block_count < target_block and not cursor.atEnd():
-            cursor.movePosition(QTextCursor.NextBlock)
-            block_count += 1
-        self.chat_history.setTextCursor(cursor)
-        self.chat_history.ensureCursorVisible()
+        self.chat_history.scrollToAnchor(f"msg-{max(0, index)}")
 
     # ── AI Suggestions ────────────────────────────────────────────────────────
     def toggle_suggestions(self) -> None:

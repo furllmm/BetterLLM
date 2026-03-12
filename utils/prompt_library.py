@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -36,9 +37,49 @@ def _save(prompts: List[Dict]) -> None:
     LIBRARY_FILE.write_text(json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+
+
+
+
+def _normalized_text(value: str) -> str:
+    """Normalize user-provided text for tolerant matching."""
+    return (value or "").strip().casefold()
+
+def _normalize_prompt(entry: Dict) -> Dict:
+    """Ensure prompt entries always contain extended metadata keys."""
+    e = dict(entry)
+    e.setdefault("app_name", "")
+    e.setdefault("project_name", "")
+    e.setdefault("programming_language", "")
+    e.setdefault("framework", "")
+    e.setdefault("prompt_version", "v1")
+    e.setdefault("feature_name", "")
+    e.setdefault("tags", [])
+    if not isinstance(e.get("tags"), list):
+        e["tags"] = []
+    return e
+
+
+
+
+def is_favorite_prompt(prompt: Dict) -> bool:
+    """Return True if prompt is marked as favorite by category or tags."""
+    p = _normalize_prompt(prompt)
+    category = _normalized_text(p.get("category"))
+    if category in {"favorites", "favorite"}:
+        return True
+    tags = p.get("tags") or []
+    normalized_tags = {_normalized_text(str(tag)) for tag in tags}
+    return bool({"favorite", "favorites", "fav", "star", "starred"} & normalized_tags)
+
+
+def get_favorite_prompts() -> List[Dict]:
+    """Return favorite prompts in default prompt ordering."""
+    return [p for p in get_all_prompts() if is_favorite_prompt(p)]
+
 def get_all_prompts() -> List[Dict]:
     """Return all prompts sorted by category then name."""
-    return sorted(_load(), key=lambda p: (p.get("category", ""), p.get("name", "")))
+    return sorted([_normalize_prompt(p) for p in _load()], key=lambda p: (p.get("category", ""), p.get("name", "")))
 
 
 def get_categories() -> List[str]:
@@ -53,7 +94,10 @@ def get_categories() -> List[str]:
     return sorted(cats)
 
 
-def add_prompt(name: str, text: str, category: str = "General", description: str = "") -> Dict:
+def add_prompt(name: str, text: str, category: str = "General", description: str = "",
+               app_name: str = "", project_name: str = "", programming_language: str = "",
+               framework: str = "", prompt_version: str = "v1", feature_name: str = "",
+               tags: Optional[List[str]] = None) -> Dict:
     """Add a new prompt. Returns the created prompt dict."""
     prompts = _load()
     entry = {
@@ -62,6 +106,13 @@ def add_prompt(name: str, text: str, category: str = "General", description: str
         "text": text,
         "category": category,
         "description": description,
+        "app_name": app_name,
+        "project_name": project_name,
+        "programming_language": programming_language,
+        "framework": framework,
+        "prompt_version": prompt_version or "v1",
+        "feature_name": feature_name,
+        "tags": tags or [],
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "use_count": 0,
     }
@@ -98,6 +149,12 @@ def search_prompts(query: str) -> List[Dict]:
         or q in p.get("text", "").lower()
         or q in p.get("description", "").lower()
         or q in p.get("category", "").lower()
+        or q in p.get("app_name", "").lower()
+        or q in p.get("project_name", "").lower()
+        or q in p.get("programming_language", "").lower()
+        or q in p.get("framework", "").lower()
+        or q in p.get("feature_name", "").lower()
+        or any(q in str(t).lower() for t in p.get("tags", []))
     ]
 
 
@@ -127,3 +184,222 @@ def initialize_defaults() -> None:
     if not _load():
         for p in STARTER_PROMPTS:
             add_prompt(p["name"], p["text"], p["category"], p.get("description", ""))
+
+
+def filter_prompts(app_name: str = "", programming_language: str = "", framework: str = "") -> List[Dict]:
+    prompts = [_normalize_prompt(p) for p in _load()]
+    app = _normalized_text(app_name)
+    language = _normalized_text(programming_language)
+    fw = _normalized_text(framework)
+    if app:
+        prompts = [p for p in prompts if _normalized_text(p.get("app_name")) == app]
+    if language:
+        prompts = [p for p in prompts if _normalized_text(p.get("programming_language")) == language]
+    if fw:
+        prompts = [p for p in prompts if _normalized_text(p.get("framework")) == fw]
+    return prompts
+
+
+def get_unique_values(field: str) -> List[str]:
+    vals: Dict[str, str] = {}
+    for p in [_normalize_prompt(x) for x in _load()]:
+        raw = (p.get(field) or "").strip()
+        key = _normalized_text(raw)
+        if not key:
+            continue
+        existing = vals.get(key)
+        if existing is None:
+            vals[key] = raw
+        else:
+            vals[key] = min([existing, raw], key=lambda x: (x.isupper(), x.islower(), _normalized_text(x), x))
+    return [vals[k] for k in sorted(vals.keys())]
+
+
+def export_prompts(path: Path, fmt: str = "json") -> Path:
+    """Export prompt library in JSON or Markdown format."""
+    prompts = get_all_prompts()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if fmt == "json":
+        path.write_text(json.dumps(prompts, indent=2, ensure_ascii=False), encoding="utf-8")
+    elif fmt == "markdown":
+        lines = ["# Prompt Library\n\n"]
+        for p in prompts:
+            tags = ", ".join(p.get("tags", []))
+            lines.append(f"## {p.get('name','Untitled')}\n")
+            lines.append(f"- Category: {p.get('category','')}\n")
+            lines.append(f"- App: {p.get('app_name','')}\n")
+            lines.append(f"- Project: {p.get('project_name','')}\n")
+            lines.append(f"- Language: {p.get('programming_language','')}\n")
+            lines.append(f"- Framework: {p.get('framework','')}\n")
+            lines.append(f"- Version: {p.get('prompt_version','v1')}\n")
+            lines.append(f"- Feature: {p.get('feature_name','')}\n")
+            lines.append(f"- Tags: {tags}\n\n")
+            lines.append(f"{p.get('description','')}\n\n")
+            prompt_text = p.get("text", "")
+            fence = _markdown_fence_for_text(prompt_text)
+            lines.append(f"{fence}\n")
+            lines.append(prompt_text + "\n")
+            lines.append(f"{fence}\n\n")
+        path.write_text("".join(lines), encoding="utf-8")
+    else:
+        raise ValueError(f"Unsupported export format: {fmt}")
+
+    return path
+
+
+def import_prompts(path: Path, merge_duplicates: bool = True) -> int:
+    """Import prompts from JSON array file. Returns number of imported items."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError("Prompt import expects a JSON array")
+
+    existing = [_normalize_prompt(p) for p in _load()]
+    existing_ids = {p.get("id") for p in existing}
+    existing_sig = {
+        (
+            (p.get("name") or "").strip().lower(),
+            (p.get("text") or "").strip(),
+            (p.get("app_name") or "").strip().lower(),
+            (p.get("project_name") or "").strip().lower(),
+            (p.get("prompt_version") or "").strip().lower(),
+            (p.get("feature_name") or "").strip().lower(),
+        )
+        for p in existing
+    }
+    imported = 0
+
+    for raw in data:
+        if not isinstance(raw, dict):
+            continue
+        p = _normalize_prompt(raw)
+
+        sig = (
+            (p.get("name") or "").strip().lower(),
+            (p.get("text") or "").strip(),
+            (p.get("app_name") or "").strip().lower(),
+            (p.get("project_name") or "").strip().lower(),
+            (p.get("prompt_version") or "").strip().lower(),
+            (p.get("feature_name") or "").strip().lower(),
+        )
+        if merge_duplicates and sig in existing_sig:
+            continue
+
+        if not p.get("id") or p.get("id") in existing_ids:
+            p["id"] = f"p_{int(time.time() * 1000)}_{imported}"
+
+        existing.append(p)
+        existing_ids.add(p["id"])
+        existing_sig.add(sig)
+        imported += 1
+
+    _save(existing)
+    return imported
+
+
+
+
+def _markdown_fence_for_text(text: str) -> str:
+    """Return a backtick fence that won't conflict with the given text content."""
+    content = text or ""
+    runs = re.findall(r"`+", content)
+    max_run = max((len(x) for x in runs), default=0)
+    return "`" * max(3, max_run + 1)
+
+def _prompt_version_sort_key(version: str) -> tuple:
+    """Sort prompt versions naturally (v2 < v10), with fallback for non-numeric labels."""
+    raw = (version or "").strip().lower()
+    m = re.match(r"^v?(\d+)$", raw)
+    if m:
+        return 0, int(m.group(1)), raw
+    return 1, 0, raw
+
+
+def get_app_prompt_timeline(app_name: str) -> List[Dict]:
+    """Return prompts for a specific app, ordered chronologically."""
+    app = _normalized_text(app_name)
+    if not app:
+        return []
+    prompts = [
+        _normalize_prompt(p)
+        for p in _load()
+        if _normalized_text(p.get("app_name")) == app
+    ]
+    return sorted(prompts, key=lambda p: (p.get("created_at", ""), _prompt_version_sort_key(p.get("prompt_version", "")), _normalized_text(p.get("name"))))
+
+
+def get_prompt_feature_map(app_name: str = "") -> Dict[str, List[Dict]]:
+    """Return mapping: feature_name -> prompt entries (optionally filtered by app)."""
+    prompts = [_normalize_prompt(p) for p in _load()]
+    app = _normalized_text(app_name)
+    if app:
+        prompts = [p for p in prompts if _normalized_text(p.get("app_name")) == app]
+
+    grouped: Dict[str, List[Dict]] = {}
+    labels: Dict[str, str] = {}
+    for p in prompts:
+        feature_label = (p.get("feature_name") or "").strip() or "(unmapped)"
+        feature_key = _normalized_text(feature_label)
+        if not feature_key:
+            feature_key = "(unmapped)"
+
+        existing = labels.get(feature_key)
+        if existing is None:
+            labels[feature_key] = feature_label
+        else:
+            candidate = min([existing, feature_label], key=lambda x: (_normalized_text(x), x))
+            labels[feature_key] = candidate
+
+        grouped.setdefault(feature_key, []).append(p)
+
+    mapping: Dict[str, List[Dict]] = {}
+    ordered_items = sorted(
+        grouped.items(),
+        key=lambda item: _normalized_text(labels.get(item[0], item[0]))
+    )
+    for feature_key, entries in ordered_items:
+        label = labels.get(feature_key, feature_key)
+        mapping[label] = sorted(entries, key=lambda x: (x.get("created_at", ""), _prompt_version_sort_key(x.get("prompt_version", "")), _normalized_text(x.get("name"))))
+    return mapping
+
+
+def get_replay_sequence(app_name: str, feature_name: str = "") -> List[Dict]:
+    """Return chronological prompt sequence for an app (optionally a specific feature)."""
+    app = _normalized_text(app_name)
+    if not app:
+        return []
+    prompts = [
+        _normalize_prompt(p) for p in _load()
+        if _normalized_text(p.get("app_name")) == app
+    ]
+    feature = _normalized_text(feature_name)
+    if feature:
+        prompts = [p for p in prompts if _normalized_text(p.get("feature_name")) == feature]
+    return sorted(prompts, key=lambda p: (p.get("created_at", ""), _prompt_version_sort_key(p.get("prompt_version", "")), _normalized_text(p.get("name"))))
+
+
+def build_replay_script(app_name: str, feature_name: str = "") -> str:
+    """Build a replay-ready markdown script from prompt sequence."""
+    app_raw = (app_name or "").strip()
+    feature_raw = (feature_name or "").strip()
+    seq = get_replay_sequence(app_raw, feature_raw)
+    if not seq:
+        return ""
+
+    title = f"# Prompt Replay: {app_raw}"
+    if feature_raw:
+        title += f" / {feature_raw}"
+
+    lines = [title, ""]
+    for i, p in enumerate(seq, start=1):
+        lines.append(f"## Step {i} · {p.get('name','Untitled')} · {p.get('prompt_version','v1')}")
+        lines.append(f"Date: {p.get('created_at','')}")
+        if p.get("description"):
+            lines.append(f"Desc: {p.get('description')}")
+        prompt_text = p.get("text", "")
+        fence = _markdown_fence_for_text(prompt_text)
+        lines.append(fence)
+        lines.append(prompt_text)
+        lines.append(fence)
+        lines.append("")
+    return "\n".join(lines)

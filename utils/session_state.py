@@ -35,7 +35,41 @@ def _default_state() -> Dict[str, Any]:
             "max_tokens": 512,
         },
         "active_preset": "Balanced",
+        "active_profile": "Default",
+        "active_model_topic": None,
+        "splitter_sizes": [240, 960, 0, 0],
+        "timeline_visible": False,
+        "suggestions_visible": False,
+        "lan_checked": False,
+        "chat_scroll_positions": {},
+        "input_draft": "",
     }
+
+
+def _sanitize_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize potentially corrupted on-disk session values."""
+    clean = dict(state)
+
+    if not isinstance(clean.get("chat_scroll_positions"), dict):
+        clean["chat_scroll_positions"] = {}
+
+    sizes = clean.get("splitter_sizes")
+    if not (isinstance(sizes, list) and len(sizes) == 4 and all(isinstance(v, (int, float)) for v in sizes)):
+        clean["splitter_sizes"] = _default_state()["splitter_sizes"]
+
+    for key in ("timeline_visible", "suggestions_visible", "lan_checked", "mem_checked", "deep_checked", "kb_checked"):
+        clean[key] = bool(clean.get(key, _default_state().get(key, False)))
+
+    if not isinstance(clean.get("input_draft"), str):
+        clean["input_draft"] = ""
+
+    if clean.get("active_model_topic") is not None and not isinstance(clean.get("active_model_topic"), str):
+        clean["active_model_topic"] = None
+
+    if not isinstance(clean.get("active_profile"), str):
+        clean["active_profile"] = "Default"
+
+    return clean
 
 
 def load_session() -> Dict[str, Any]:
@@ -46,7 +80,7 @@ def load_session() -> Dict[str, Any]:
             with open(SESSION_FILE, "r", encoding="utf-8") as f:
                 saved = json.load(f)
             # Merge saved into defaults (so new keys always exist)
-            state.update(saved)
+            state.update(_sanitize_state(saved))
             # Ensure generation_params sub-keys all exist
             state["generation_params"] = {
                 **_default_state()["generation_params"],

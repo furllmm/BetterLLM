@@ -100,3 +100,44 @@ def compute_folder_stats(chats_dir: Path) -> Dict:
                         totals[k] += v
     totals["chat_count"] = chat_count
     return dict(totals)
+
+
+def compute_usage_dashboard(chats_dir: Path) -> Dict:
+    """Compute usage aggregates by topic and by day."""
+    by_topic: Dict[str, Dict[str, int]] = defaultdict(lambda: {"chats": 0, "messages": 0, "tokens": 0})
+    by_day: Dict[str, Dict[str, int]] = defaultdict(lambda: {"messages": 0, "tokens": 0})
+
+    if not chats_dir.exists():
+        return {"by_topic": {}, "by_day": {}}
+
+    for topic_dir in chats_dir.iterdir():
+        if not topic_dir.is_dir():
+            continue
+        topic = topic_dir.name
+        for chat_file in topic_dir.glob("*.jsonl"):
+            stats = compute_chat_stats(chat_file)
+            if not stats:
+                continue
+            by_topic[topic]["chats"] += 1
+            by_topic[topic]["messages"] += int(stats.get("total_messages", 0))
+            by_topic[topic]["tokens"] += int(stats.get("total_tokens", 0))
+
+            try:
+                with open(chat_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            m = json.loads(line)
+                        except Exception:
+                            continue
+                        ts = m.get("timestamp", "")
+                        day = ts[:10] if len(ts) >= 10 else "unknown"
+                        by_day[day]["messages"] += 1
+                        by_day[day]["tokens"] += len(m.get("content", "")) // 4
+            except Exception:
+                pass
+
+    by_topic_sorted = dict(sorted(by_topic.items(), key=lambda kv: kv[1]["tokens"], reverse=True))
+    by_day_sorted = dict(sorted(by_day.items(), key=lambda kv: kv[0], reverse=True))
+    return {"by_topic": by_topic_sorted, "by_day": by_day_sorted}

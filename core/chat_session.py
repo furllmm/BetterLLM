@@ -14,6 +14,7 @@ from .model_manager import ModelManager
 from .router import TopicRouter
 from .terminal_executor import TerminalExecutor
 from utils.paths import get_chats_dir
+from utils import favorites_library as fav_lib
 
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,8 @@ class ChatSession:
         # Limit history
         history_str = "\n".join([f"{m.role}: {m.content}" for m in self._history])
 
+        personalization = fav_lib.build_personalization_context()
+
         prompt = f"""{self._profile_system_prompt}
 
 <System>
@@ -153,6 +156,8 @@ class ChatSession:
 - Long-term memories:
 {chr(10).join(memories) if memories else 'None.'}
 {kb_context}
+- User personalization profile:
+{personalization if personalization else 'None.'}
 - Recent history:
 {history_str if history_str else 'Empty.'}
 </System>
