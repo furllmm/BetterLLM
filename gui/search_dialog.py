@@ -60,7 +60,7 @@ class SearchDialog(QDialog):
     Global chat search dialog.
     jump_to_message(chat_path, message_index) emitted when user wants to navigate.
     """
-    jump_to_message = Signal(str, int)  # chat_path, message_index
+    jump_to_message = Signal(str, int, str)  # chat_path, message_index, query
 
     def __init__(self, indexer: ChatIndexer, parent=None):
         super().__init__(parent)
@@ -201,7 +201,7 @@ class SearchDialog(QDialog):
         if not isinstance(current, SearchResultItem):
             return
         result = current.result
-        self.jump_to_message.emit(str(result.chat_path), result.message_index)
+        self.jump_to_message.emit(str(result.chat_path), result.message_index, self.search_box.text().strip())
         self.accept()
 
     def _reindex(self):

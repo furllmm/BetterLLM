@@ -73,7 +73,7 @@ def _messages_to_html(messages: List[dict], chat_name: str) -> str:
     def render_content(content: str) -> str:
         result = []
         # Find code blocks
-        pattern = re.compile(r"```(\w*)\n(.*?)\n?```", re.DOTALL)
+        pattern = re.compile(r"```([\w.+-]*)\n(.*?)\n?```", re.DOTALL)
         last_end = 0
         for m in pattern.finditer(content):
             # Plain text before code block
@@ -82,7 +82,7 @@ def _messages_to_html(messages: List[dict], chat_name: str) -> str:
             lang = m.group(1) or "text"
             code = m.group(2)
             highlighted = _highlight_code_html(code, lang)
-            result.append(f'<div class="code-block"><span class="lang-badge">{lang}</span><pre>{highlighted}</pre></div>')
+            result.append(f'<div class="code-block"><span class="lang-badge">{lang}</span>{highlighted}</div>')
             last_end = m.end()
         # Remaining text
         plain = content[last_end:].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

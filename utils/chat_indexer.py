@@ -207,10 +207,21 @@ class ChatIndexer:
 
         with self._lock:
             index_snapshot = dict(self._index)
+            mtimes_snapshot = dict(self._mtimes)
 
-        for path_str, messages in index_snapshot.items():
+        # Search more recent chats first to maximize relevance when max_results is hit.
+        ordered_paths = sorted(
+            index_snapshot.keys(),
+            key=lambda p: mtimes_snapshot.get(p, 0.0),
+            reverse=True,
+        )
+
+        for path_str in ordered_paths:
+            messages = index_snapshot.get(path_str, [])
             chat_path = Path(path_str)
-            for (msg_idx, role, content, timestamp) in messages:
+
+            # Scan latest messages first for faster "recent" hits.
+            for (msg_idx, role, content, timestamp) in reversed(messages):
                 pos = content.lower().find(q)
                 if pos == -1:
                     continue
@@ -239,7 +250,7 @@ class ChatIndexer:
             if len(results) >= max_results:
                 break
 
-        # Sort by recency (most recent chats first)
+        # Keep stable recency ordering for UI.
         results.sort(key=lambda r: r.timestamp, reverse=True)
         return results
 
