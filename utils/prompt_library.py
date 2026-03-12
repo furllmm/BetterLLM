@@ -232,3 +232,15 @@ def import_prompts(path: Path) -> int:
 
     _save(existing)
     return imported
+
+
+def get_app_prompt_timeline(app_name: str) -> List[Dict]:
+    """Return prompts for a specific app, ordered chronologically."""
+    if not app_name:
+        return []
+    prompts = [
+        _normalize_prompt(p)
+        for p in _load()
+        if (p.get("app_name") or "") == app_name
+    ]
+    return sorted(prompts, key=lambda p: (p.get("created_at", ""), p.get("prompt_version", "")))

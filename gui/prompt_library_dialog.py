@@ -178,6 +178,11 @@ class PromptLibraryDialog(QDialog):
         btn_import.clicked.connect(self._import_prompts)
         hlay.addWidget(btn_import)
 
+        btn_timeline = QPushButton("🕓 App Timeline")
+        btn_timeline.setObjectName("secondary")
+        btn_timeline.clicked.connect(self._show_app_timeline)
+        hlay.addWidget(btn_timeline)
+
         main.addWidget(header)
 
         # Body
@@ -424,6 +429,49 @@ class PromptLibraryDialog(QDialog):
             QMessageBox.information(self, "Import", f"Imported {n} prompts.")
         except Exception as e:
             QMessageBox.critical(self, "Import Failed", str(e))
+
+    def _show_app_timeline(self):
+        app = self.app_filter.currentText().strip()
+        if not app or app == "All Apps":
+            apps = lib.get_unique_values("app_name")
+            if not apps:
+                QMessageBox.information(self, "Timeline", "No app-tagged prompts found.")
+                return
+            app, ok = QInputDialog.getItem(self, "App Timeline", "Select app:", apps, 0, False)
+            if not ok:
+                return
+
+        items = lib.get_app_prompt_timeline(app)
+        if not items:
+            QMessageBox.information(self, "Timeline", f"No prompts found for app: {app}")
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"App Prompt Timeline — {app}")
+        dlg.resize(820, 560)
+        lay = QVBoxLayout(dlg)
+        view = QTextEdit()
+        view.setReadOnly(True)
+
+        lines = [f"# Timeline: {app}", ""]
+        for p in items:
+            lines.append(f"## {p.get('created_at', '')}  ·  {p.get('name','Untitled')}")
+            lines.append(f"- Version: {p.get('prompt_version','v1')}")
+            lines.append(f"- Project: {p.get('project_name','')}")
+            lines.append(f"- Language: {p.get('programming_language','')}")
+            lines.append(f"- Framework: {p.get('framework','')}")
+            tags = ", ".join(p.get('tags', []))
+            lines.append(f"- Tags: {tags}")
+            if p.get('description'):
+                lines.append(f"- Description: {p.get('description')}")
+            lines.append("")
+
+        view.setPlainText("\n".join(lines))
+        lay.addWidget(view)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        lay.addWidget(close_btn, alignment=Qt.AlignRight)
+        dlg.exec()
 
     def _delete_prompt(self):
         if not self._selected_id:

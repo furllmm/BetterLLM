@@ -65,3 +65,34 @@ def test_prompt_library_export_and_import(monkeypatch, tmp_path: Path):
     items = pl.get_all_prompts()
     assert len(items) == 1
     assert items[0]["name"] == "Prompt1"
+
+
+
+def test_get_app_prompt_timeline_orders_by_created_at(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(pl, "LIBRARY_FILE", tmp_path / "library.json")
+
+    pl.add_prompt("New", "text", app_name="MyApp")
+    # Force custom created_at order by patching stored file
+    entries = pl.get_all_prompts()
+    entries[0]["created_at"] = "2024-02-01T10:00:00"
+    entries.append({
+        "id": "p_old",
+        "name": "Old",
+        "text": "text",
+        "category": "General",
+        "description": "",
+        "app_name": "MyApp",
+        "project_name": "",
+        "programming_language": "",
+        "framework": "",
+        "prompt_version": "v1",
+        "tags": [],
+        "created_at": "2024-01-01T10:00:00",
+        "use_count": 0,
+    })
+    pl._save(entries)
+
+    timeline = pl.get_app_prompt_timeline("MyApp")
+    assert len(timeline) == 2
+    assert timeline[0]["name"] == "Old"
+    assert timeline[1]["name"] == "New"
